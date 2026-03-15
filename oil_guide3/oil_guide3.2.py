@@ -3,6 +3,7 @@ import pygame as pg
 from matplotlib import path as pth
 import requests
 from io import BytesIO
+import math
 
 #–––––––––––––––––––––––––––––––––––––––––––––init–––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 
@@ -34,59 +35,16 @@ def update_stats(active_player):
     active_player.oil = 0
     active_player.nuclear = 0
     for country in countries:
-        if country.owner == active_player:
-            active_player.troops += country.troops
-            active_player.food += country.food
-            active_player.wood += country.wood
-            active_player.steel += country.steel
-            active_player.oil += country.oil
-            active_player.nuclear += country.nuclear
-
-def show_stats(turn):
-    country_num = 0
-    players[turn].food = 0
-    players[turn].wood = 0
-    players[turn].steel = 0
-    players[turn].oil = 0
-    players[turn].nuclear = 0
-    players[turn].troops = 0
-    for i in range(len(countries)):
-        if countries[i].owner == players[turn] and countries[i].radioactive == 0:
+        if country.owner == active_player and not country.radioactive:
             n = 1
-            country_num += 1
-            if countries[i].developed == 2:
+            if country.developed:
                 n = 2
-            elif countries[i].developed == 1:
-                n = 0
-            players[turn].food += n*countries[i].food
-            players[turn].wood += n*countries[i].wood
-            players[turn].steel += n*countries[i].steel
-            players[turn].oil += n*countries[i].oil
-            players[turn].nuclear += n*countries[i].nuclear
-            players[turn].troops += countries[i].troops
-    print(" countries: " + str(country_num))
-    cont_lst = check_for_continents(turn)
-    cont_str = ""
-    if len(cont_lst) != 0:
-        for i in range(len(cont_lst)):
-            cont_str += cont_lst[i].name + ", "
-        print(" continents: " + cont_str[0:-2])
-    print(" " + players[turn].name + "'s resources per round:")
-    print("  food:    " + str(players[turn].food))
-    print("  wood:    " + str(players[turn].wood))
-    print("  steel:   " + str(players[turn].steel))
-    print("  oil:     " + str(players[turn].oil))
-    print("  uranium: " + str(players[turn].nuclear))
-    print("  troops:  " + str(3 + int(players[turn].troops/3)))
-
-def nuke():
-    nuked_country = guess_country(input("Which country is nuked? "))
-    for i in range(len(countries)):
-        if countries[i] == nuked_country:
-            countries[i].radioactive += 3
-            countries[i].nuked_by = players[turn]
-            print(" " + countries[i].name + "'s radioactivity is now " + str(countries[i].radioactive))
-            break
+            active_player.troops += country.troops
+            active_player.food += n*country.food
+            active_player.wood += n*country.wood
+            active_player.steel += n*country.steel
+            active_player.oil += n*country.oil
+            active_player.nuclear += n*country.nuclear
 
 def check_for_continents(turn):
     lst = []  #list of each of owner's country's continent affiliation
@@ -115,7 +73,7 @@ continents.append(Continent("Oceania", size = 4, card_bonus = 0))
 
 
 class Country:
-    def __init__(self, name, polygon, food = 0, wood = 0, steel = 0, nuclear = 0, oil = 0, owner = default_player, troops = 0, units = 2, ships = 0, planes = 0, tanks = 0, fort_lvl = 0, radioactive = 0, developed = False):
+    def __init__(self, name, polygon, food = 0, wood = 0, steel = 0, nuclear = 0, oil = 0, owner = default_player, troops = 0, units = 2, ships = 0, planes = 0, tanks = 0, fort_lvl = 0, radioactive = False, developed = False):
         self.polygon = polygon
         self.name = name
         self.food = food
@@ -318,20 +276,23 @@ turn_num = 1
 turn = 0
 event_card = 0
 shop = False
+nuke = False
+develop = False
 pg.init()
+clock = pg.time.Clock()
 
 
 #–––––––––––––––––––––––––––––––––––––––––––––handles–––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 
 background_color = (200, 200, 255)
 font = 'Times New Roman'
-font_size = 20
+font_size = 30
 blue = (29, 86, 191)
 green = (35, 176, 45)
 red = (176, 35, 35)
-pink = (255, 2, 225)
+pink = (235, 2, 225)#(255, 2, 225)
 yellow = (230, 226, 0)
-white = (255, 255, 255)
+white = (235, 235, 235)
 card_background = (240, 240, 240)
 
 #screen
@@ -342,8 +303,16 @@ xoffset = -401
 yoffset = -240
 screen = pg.display.set_mode([WIDTH, HEIGHT])
 
+#Pearl Harbor bug fix
+pearlharbor_radius = 0.1*HEIGHT
+pearlharbor_centre = (40, 295)
+
 BUTTON_WIDTH = 60
 BUTTON_HEIGHT = 40
+
+nuke_rect = pg.Rect(WIDTH - 810, HEIGHT - 630, BUTTON_WIDTH, 1.5*BUTTON_HEIGHT)
+dev_rect = pg.Rect(WIDTH - 880, HEIGHT - 630, BUTTON_WIDTH, 1.5*BUTTON_HEIGHT)
+shop_rect = pg.Rect(WIDTH - 950, HEIGHT - 630, BUTTON_WIDTH, 1.5*BUTTON_HEIGHT)
 
 
 #–––––––––––––––––––––––––––––––––––––––––––––engine––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
@@ -387,10 +356,9 @@ players = [Player( color = blue), Player( color = green), Player(color = red), P
 active_player = players[0]
 
 pg.font.init()
+myfont = pg.font.SysFont(font, font_size)
 mouse_position = (0, 0)
 mouse_state = (0, 0, 0)
-myfont = pg.font.SysFont(font, font_size)
-
 
 while running:
     screen.fill(background_color)
@@ -414,14 +382,21 @@ while running:
         xoffset += transformed_mouse_position[0] - transformed_previous_mouse_position[0]
         yoffset += transformed_mouse_position[1] - transformed_previous_mouse_position[1]
     
-    hover_country = -1
-    for i in range(42):
-        for p in countries[i].polygon:
+    hover_country = countries[-1]
+    for country in countries:
+        if country.radioactive:
+            border_color = (255,0,0)
+        else:
+            border_color = (0,0,0)
+        dev_coloring = 0
+        if country.developed:
+            dev_coloring = 20
+        for p in country.polygon:
             transformed_coordinates = [transform_coordinates(v, zoom, xoffset, yoffset) for v in p]
-            pg.draw.polygon(screen, countries[i].owner.color, transformed_coordinates)
-            pg.draw.polygon(screen, (0,0,0), transformed_coordinates, 2)
+            pg.draw.polygon(screen, tuple(c + dev_coloring for c in country.owner.color), transformed_coordinates)
+            pg.draw.polygon(screen, border_color, transformed_coordinates, 2)
             if pth.Path(p).contains_point(transformed_mouse_position): #identify which country is being hovered over
-                hover_country = i
+                hover_country = country
 
     if left_pressed:
         if transformed_mouse_position[0] > 0.65*WIDTH: #player switching
@@ -432,24 +407,70 @@ while running:
                 else:
                     if pg.Rect(WIDTH - 200 + 1.1*(i-3)*BUTTON_WIDTH, 20 + 1.2*BUTTON_HEIGHT, BUTTON_WIDTH, BUTTON_HEIGHT).collidepoint(mouse_position): #player is switched
                         active_player = players[i]
-        elif WIDTH - 950 < mouse_position[0] < WIDTH - 890 and HEIGHT - 630 < mouse_position[1] < HEIGHT - 570:
+        elif shop_rect.collidepoint(mouse_position):
             if shop:
                 shop = False
             else:
                 shop = True
+        elif dev_rect.collidepoint(mouse_position):
+            if develop:
+                develop = False
+            else:
+                develop = True
+        elif nuke_rect.collidepoint(mouse_position):
+            if nuke:
+                nuke = False
+            else:
+                nuke = True
         else: #if country is pressed
             if not shop:
-                if countries[hover_country].owner != active_player:
-                    countries[hover_country].owner = active_player
-                else:
-                    countries[hover_country].owner = default_player
+                if hover_country.name == "Pearl Harbor": #pearl harbor bug fix
+                    mx, my = event.pos
+                    dx = mx - pearlharbor_centre[0]
+                    dy = my - pearlharbor_centre[1]
+                    distance = math.hypot(dx, dy)
+                    if distance <= pearlharbor_radius:
+                        if not nuke and not develop:
+                            if hover_country.owner != active_player:
+                                hover_country.owner = active_player
+                            else:
+                                hover_country.owner = default_player
+                        elif nuke:
+                            if hover_country.radioactive == True:
+                                hover_country.radioactive = False
+                            else:
+                                hover_country.radioactive = True
+                        if develop:
+                            hover_country.developed = True
+                elif not nuke and not develop:
+                    if hover_country.owner != active_player:
+                        hover_country.owner = active_player
+                    else:
+                        hover_country.owner = default_player
+                elif nuke:
+                    if hover_country.radioactive == False:
+                        hover_country.radioactive = True
+                    else:
+                        hover_country.radioactive = False
+                elif develop:
+                    hover_country.developed = True
         update_stats(active_player)
 
     pg.draw.rect(screen, (200, 200, 200), pg.Rect(WIDTH  - 210, 0, 210, HEIGHT - 400)) #upper menu box
     pg.draw.rect(screen, (150, 150, 150), pg.Rect(WIDTH  - 210, HEIGHT - 400, 210, HEIGHT)) #lower menu box
     pg.draw.rect(screen, active_player.color, pg.Rect(WIDTH - 210, 0.25*HEIGHT, 210, 0.13*HEIGHT)) #active player
-    pg.draw.rect(screen, (170,230,170), pg.Rect(WIDTH - 950, HEIGHT - 630, 60, 60)) #top left green rectangle
-    screen.blit(spr_shop, (WIDTH - 946, HEIGHT - 626)) #shop
+    pg.draw.rect(screen, (170,230,170), shop_rect) #top left green rectangle
+    screen.blit(pg.transform.scale(spr_shop, (BUTTON_WIDTH, BUTTON_HEIGHT)), shop_rect.topleft) #shop
+    if shop:
+        pg.draw.rect(screen, (0,0,0), shop_rect, 3)
+    pg.draw.rect(screen, (37, 150, 190), dev_rect) #top left blue rectangle
+    screen.blit(pg.transform.scale(spr_fort, (BUTTON_WIDTH, BUTTON_HEIGHT)), dev_rect.topleft) #development button
+    if develop:
+        pg.draw.rect(screen, (0,0,0), dev_rect, 3)
+    pg.draw.rect(screen, (236, 247, 43), nuke_rect) #top left yellow rectangle
+    screen.blit(pg.transform.scale(spr_nuclear, (BUTTON_WIDTH, BUTTON_HEIGHT)), nuke_rect.topleft) #nuke button
+    if nuke:
+        pg.draw.rect(screen, (0,0,0), nuke_rect, 3)
 
     #player stats
     screen.blit(spr_troops, (WIDTH - 200, HEIGHT - 370))
@@ -510,5 +531,6 @@ while running:
             screen.blit(spr_nuclear, (WIDTH - 535, HEIGHT - 405))
 
     pg.display.flip()
+    dt = clock.tick(60)
 pg.quit()
     
